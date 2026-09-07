@@ -33,19 +33,32 @@ python3 firmware/evil_twin.py
 ## Usage
 
 ```bash
-# Run offline demo with embedded sample beacons
-python3 firmware/evil_twin.py
+# Run the offline evil-twin simulation (prints exact frame bytes, NO radio emitted)
+python3 firmware/evil_twin.py --i-understand-this-is-an-offline-lab-simulation-with-no-radio-emission \
+    --simulate --lab-ssid lab-test-net --pcap-out reports/flow.pcap --json reports/w2.json
+
+# Run the rogue-AP fingerprinter against the lab corpus
+python3 firmware/evil_twin.py --detect
+
+# Byte-exact unit tests
+python3 -m unittest discover -s tests
+```
+
+A real-air refusal without the gate is enforced:
+```bash
+python3 firmware/evil_twin.py --simulate        # exit 2: safety flag required
+python3 firmware/evil_twin.py --simulate --lab-ssid CorpNet   # exit 2: non-lab SSID refused
 ```
 
 ```python
-from firmware.evil_twin import detect_rogue_aps, fingerprint_beacon, generate_hostapd_config
+from firmware.evil_twin import detect_rogue_aps, build_evil_twin_sequence
+from firmware import frame_core as fc
+
+# Build the full capture-flow frames as exact bytes (offscreen)
+seq = build_evil_twin_sequence("lab-test-net")
 
 # Detect clone APs from parsed beacon records
-clones, fp_groups = detect_rogue_aps(beacon_list, known_bssids={"aa:bb:cc:dd:ee:01"})
-
-# Generate lab config templates
-hostapd_cfg = generate_hostapd_config("LabSSID", channel=6)
-dnsmasq_cfg = generate_dnsmasq_config(interface="wlan0")
+clones, fp_groups = detect_rogue_aps(beacon_list, known_bssids={"00:11:22:33:44:01"})
 ```
 
 ## Example Output
@@ -105,7 +118,7 @@ This project is provided for **educational and authorized security testing purpo
 - Deploying evil-twin APs on networks you do not own without authorization
 - Capturing user credentials or traffic via rogue APs
 - Any activity that violates applicable laws or regulations
-- Commercial use without proper licensing
+- Operating an intentional radiator outside FCC/regulatory limits
 
 ### No Warranty
 This software is provided "AS IS" without warranty of any kind. The author is not responsible for any misuse or damage caused by this software.
@@ -115,6 +128,40 @@ If you discover vulnerabilities using this tool, follow responsible disclosure p
 1. Report to the vendor/owner privately
 2. Allow reasonable time for remediation
 3. Do not exploit beyond proof of concept
+
+## Live Lab Test Plan
+
+This repo is a **pre-hardware simulation** tool. The evil-twin capture flow is built
+offscreen as exact bytes and printed — **nothing is radiated** unless you add a hardware
+backend plus an explicit gate.
+
+Offline (this repo, no radio):
+1. `python3 firmware/evil_twin.py --i-understand-this-is-an-offline-lab-simulation-with-no-radio-emission \
+     --simulate --lab-ssid lab-test-net --json reports/w2.json` — build + print the beacon /
+   probe / deauth-on-capture byte sequence (exit 0), inspect `reports/`.
+2. Confirm the gate: `python3 firmware/evil_twin.py --simulate` **refuses** (exit 2) without the
+   giant confirmation flag; a non-`lab-` SSID is also refused (exit 2).
+3. `python3 -m unittest discover -s tests` — byte-exact unit tests pass (exit 0).
+
+Authorized lab (only with hardware gate + written scope + shield + MAC/SSID allowlist):
+4. On an air-gapped, shield-attenuated test bench on an authorized channel, transmit the exact
+   bytes the simulation printed and confirm the lab monitor receives identical bytes.
+5. Point lab detection (e.g., w2 rogue-AP detector / w7-wids-sensor) at the bench; confirm it
+   flags the cloned-SSID rogue BSSID.
+6. `green = permitted`: any real-air step requires prior written lab-owner authorization, the
+   `--i-understand-...` + `--lab-ssid lab-*` allowlist, and a faraday/shielded enclosure.
+
+## Metrics
+
+- Frame types built byte-exact: beacon (cloned SSID), probe request, probe response,
+  deauth-on-capture, auth (open)
+- Capture flow: 7 deterministic phases, validated ordering on pcap fixture
+- pcap (classic, linktype 105) write + read round-trip for offline fixtures
+- Rogue-AP detection corpus: 5 lab beacons, clone detection by fingerprint
+- Safety: `--i-understand-...` giant flag + `lab-*` SSID allowlist enforced before simulation
+
+- Test suite: `python3 -m unittest discover -s tests`
+- Reports: `reports/` (gitignored)
 
 ## License
 
